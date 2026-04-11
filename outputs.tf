@@ -1,8 +1,7 @@
 output "instance_ami" {
-  value = aws_instance.blog.ami
+  value = module.webserver.instance_ami
 }
 
 output "instance_arn" {
-  value = aws_instance.blog.arn
-
+  value = module.webserver.instance_arn
 }

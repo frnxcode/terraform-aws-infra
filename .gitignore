@@ -1,0 +1,18 @@
+# Local .terraform directory (downloaded providers/modules)
+.terraform/
+
+# Plan files
+tfplan
+*.tfplan
+
+# State files (contain secrets)
+*.tfstate
+*.tfstate.backup
+
+# Override files
+override.tf
+override.tf.json
+
+# Variable files that may contain secrets
+*.tfvars
+*.tfvars.json

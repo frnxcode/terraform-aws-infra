@@ -1,28 +1,77 @@
-# Learning Terraform
-This is the repository for the LinkedIn Learning course Learning Terraform. The full course is available from [LinkedIn Learning][lil-course-url].
+# terraform-aws-infra
 
-![Learning Terraform][lil-thumbnail-url] 
+Terraform project provisioning AWS EC2 webserver infrastructure across isolated environments, using a reusable module and remote state backend.
 
-Terraform is a DevOps tool for declarative infrastructure—infrastructure as code. It simplifies and accelerates the configuration of cloud-based environments. In this course, instructor Josh Samuelson shows how to use Terraform to configure infrastructure and manage resources with Amazon Web Services (AWS). After demonstrating how to set up AWS for Terraform, Josh covers how Terraform manages your infrastructure, as well as how to use core Terraform commands. He also delves into more advanced topics, including how to leverage code modules from the Terraform registry and how to create your own modules. Upon wrapping up this course, you'll have the knowledge you need to efficiently define and manage infrastructure with this powerful tool.
+## Architecture
 
-_See the readme file in the main branch for updated instructions and information._
-## Instructions
-This repository has branches for each of the videos in the course. You can use the branch pop up menu in github to switch to a specific branch and take a look at the course at that stage, or you can add `/tree/BRANCH_NAME` to the URL to go to the branch you want to access.
+```
+.
+├── bootstrap/          # S3 state bucket + DynamoDB lock table
+├── envs/
+│   ├── dev/            # Development environment (t3.nano)
+│   └── prod/           # Production environment (t3.small)
+└── modules/
+    └── webserver/      # Reusable EC2 + security group module
+```
 
-## Branches
-The branches are structured to correspond to the videos in the course. The naming convention is `CHAPTER#_MOVIE#`. As an example, the branch named `02_03` corresponds to the second chapter and the third video in that chapter. The code is built sequentally so each branch contains the completed code for that particular video and the starting code can be found in the previous video's branch.
+## What it provisions
 
-The `main` branch contains the starting code for the course and the `final` branch contains the completed code.
+Each environment deploys:
+- **EC2 instance** — Bitnami Tomcat AMI (latest), configurable instance type
+- **Security group** — HTTP (80) and HTTPS (443) inbound, all outbound
 
-### Instructor
+## Remote state
 
-Josh Samuelson 
-                            
-DevOps Engineer
+State is stored in S3 with DynamoDB locking:
+- **Bucket:** `terraform-aws-infra-state-<account-id>` (versioned, encrypted, private)
+- **Lock table:** `terraform-aws-infra-locks`
+- Each environment has its own isolated state key
 
-                            
+## Prerequisites
 
-Check out my other courses on [LinkedIn Learning](https://www.linkedin.com/learning/instructors/josh-samuelson).
+- Terraform >= 1.0
+- AWS credentials configured
+- Bootstrap infrastructure deployed (one-time setup)
 
-[lil-course-url]: https://www.linkedin.com/learning/learning-terraform-15575129?dApp=59033956
-[lil-thumbnail-url]: https://cdn.lynda.com/course/3087701/3087701-1666200696363-16x9.jpg
+## Bootstrap (first time only)
+
+```bash
+cd bootstrap
+terraform init
+terraform apply
+```
+
+## Usage
+
+Each environment is operated independently:
+
+```bash
+# Development
+cd envs/dev
+terraform init
+terraform plan
+terraform apply
+
+# Production
+cd envs/prod
+terraform init
+terraform plan
+terraform apply
+```
+
+## Environments
+
+| Environment | Instance Type | State Key |
+|---|---|---|
+| dev | `t3.nano` | `envs/dev/terraform.tfstate` |
+| prod | `t3.small` | `envs/prod/terraform.tfstate` |
+
+## Key concepts covered
+
+- Provider and Terraform version pinning
+- Variables and outputs
+- Security groups with `create_before_destroy` lifecycle
+- Reusable modules
+- Remote state backend (S3 + DynamoDB)
+- Isolated environments with shared module
+- `terraform state mv` for renaming resources without destroy/recreate

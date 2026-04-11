@@ -61,9 +61,6 @@ terraform-aws-infra/
 │       └── outputs.tf
 ├── docs/
 │   └── onboarding.md       # This file
-├── main.tf                 # Root config (calls webserver module)
-├── variables.tf            # Root variables
-├── outputs.tf              # Root outputs
 ├── providers.tf            # AWS provider + S3 backend config
 └── .gitignore
 ```

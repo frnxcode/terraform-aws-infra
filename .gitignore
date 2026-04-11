@@ -7,6 +7,7 @@ tfplan
 
 # State files (contain secrets)
 *.tfstate
+*.tfstate.*
 *.tfstate.backup
 
 # Override files

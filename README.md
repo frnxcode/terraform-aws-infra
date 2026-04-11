@@ -27,6 +27,10 @@ State is stored in S3 with DynamoDB locking:
 - **Lock table:** `terraform-aws-infra-locks`
 - Each environment has its own isolated state key
 
+## Documentation
+
+- [Onboarding guide](docs/onboarding.md) — setup, workflow, conventions and troubleshooting
+
 ## Prerequisites
 
 - Terraform >= 1.0

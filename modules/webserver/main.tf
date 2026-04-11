@@ -44,6 +44,10 @@ resource "aws_security_group" "webserver" {
   tags = {
     Name = "${var.instance_name}-sg"
   }
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_instance" "webserver" {

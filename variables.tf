@@ -5,7 +5,7 @@ variable "instance_type" {
 
 variable "instance_name" {
   description = "Name tag for the EC2 instance"
-  default     = "HelloWorld"
+  default     = "webserver"
 }
 
 variable "aws_region" {

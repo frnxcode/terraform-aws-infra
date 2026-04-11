@@ -144,6 +144,31 @@ terraform plan
 terraform apply
 ```
 
+### Accessing the application after apply
+
+After a successful `terraform apply`, Terraform outputs the public IP and DNS of the instance:
+
+```
+Outputs:
+
+public_ip  = "44.251.243.8"
+public_dns = "ec2-44-251-243-8.us-west-2.compute.amazonaws.com"
+```
+
+Open a browser and navigate to:
+
+```
+http://<public_ip>
+```
+
+You should see the Bitnami Tomcat welcome page. Allow 1-2 minutes after apply for the instance to fully boot before accessing it.
+
+To retrieve the outputs at any time without re-applying:
+
+```bash
+terraform output
+```
+
 ### Standard workflow for making changes
 
 1. Edit the relevant Terraform files (module or environment config)

@@ -20,6 +20,7 @@ module "webserver" {
   subnet_ids       = module.vpc.public_subnet_ids
   public_key       = var.public_key
   ssh_allowed_cidr = var.ssh_allowed_cidr
+  alarm_email      = var.alarm_email
   zone_id          = data.aws_route53_zone.main.zone_id
   domain_name      = "dev.myinfracode.com"
 }

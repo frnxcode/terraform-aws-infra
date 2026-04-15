@@ -45,6 +45,11 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+resource "aws_iam_role_policy_attachment" "cloudwatch" {
+  role       = aws_iam_role.webserver.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
 resource "aws_iam_instance_profile" "webserver" {
   name = "${var.instance_name}-profile"
   role = aws_iam_role.webserver.name
@@ -267,5 +272,75 @@ resource "aws_autoscaling_group" "webserver" {
     key                 = "Name"
     value               = "${var.instance_name}-asg"
     propagate_at_launch = false
+  }
+}
+
+resource "aws_cloudwatch_log_group" "webserver" {
+  name              = "/${var.instance_name}/application"
+  retention_in_days = 30
+
+  tags = {
+    Name = "${var.instance_name}-logs"
+  }
+}
+
+resource "aws_sns_topic" "alarms" {
+  name = "${var.instance_name}-alarms"
+
+  tags = {
+    Name = "${var.instance_name}-alarms"
+  }
+}
+
+resource "aws_sns_topic_subscription" "email" {
+  topic_arn = aws_sns_topic.alarms.arn
+  protocol  = "email"
+  endpoint  = var.alarm_email
+}
+
+resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+  alarm_name          = "${var.instance_name}-cpu-high"
+  alarm_description   = "Average CPU utilization exceeded 80%"
+  namespace           = "AWS/EC2"
+  metric_name         = "CPUUtilization"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 80
+  comparison_operator = "GreaterThanThreshold"
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.webserver.name
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  tags = {
+    Name = "${var.instance_name}-cpu-high"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
+  alarm_name          = "${var.instance_name}-unhealthy-hosts"
+  alarm_description   = "One or more targets in the ALB target group are unhealthy"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "UnHealthyHostCount"
+  statistic           = "Average"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+
+  dimensions = {
+    LoadBalancer = aws_lb.webserver.arn_suffix
+    TargetGroup  = aws_lb_target_group.webserver.arn_suffix
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  tags = {
+    Name = "${var.instance_name}-unhealthy-hosts"
   }
 }

@@ -46,6 +46,11 @@ variable "ssh_allowed_cidr" {
   type        = string
 }
 
+variable "alarm_email" {
+  description = "Email address to receive CloudWatch alarm notifications"
+  type        = string
+}
+
 variable "zone_id" {
   description = "Route 53 hosted zone ID for DNS validation and alias record"
   type        = string

@@ -50,9 +50,9 @@ resource "aws_iam_instance_profile" "webserver" {
   role = aws_iam_role.webserver.name
 }
 
-resource "aws_security_group" "webserver" {
-  name        = "${var.instance_name}-sg"
-  description = "Allow HTTP, HTTPS, and restricted SSH inbound traffic"
+resource "aws_security_group" "alb" {
+  name        = "${var.instance_name}-alb-sg"
+  description = "Allow HTTP and HTTPS inbound traffic to the ALB"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -69,6 +69,31 @@ resource "aws_security_group" "webserver" {
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.instance_name}-alb-sg"
+  }
+}
+
+resource "aws_security_group" "webserver" {
+  name        = "${var.instance_name}-sg"
+  description = "Allow traffic from ALB and restricted SSH"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description     = "HTTP from ALB"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
   }
 
   ingress {
@@ -95,15 +120,87 @@ resource "aws_security_group" "webserver" {
   }
 }
 
-resource "aws_instance" "webserver" {
-  ami                    = data.aws_ami.app_ami.id
-  instance_type          = var.instance_type
-  subnet_id              = var.subnet_id
-  key_name               = aws_key_pair.webserver.key_name
-  iam_instance_profile   = aws_iam_instance_profile.webserver.name
-  vpc_security_group_ids = [aws_security_group.webserver.id]
+resource "aws_lb" "webserver" {
+  name               = "${var.instance_name}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = var.subnet_ids
 
   tags = {
-    Name = var.instance_name
+    Name = "${var.instance_name}-alb"
+  }
+}
+
+resource "aws_lb_target_group" "webserver" {
+  name     = "${var.instance_name}-tg"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = var.vpc_id
+
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    interval            = 30
+  }
+
+  tags = {
+    Name = "${var.instance_name}-tg"
+  }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.webserver.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.webserver.arn
+  }
+}
+
+resource "aws_launch_template" "webserver" {
+  name_prefix   = "${var.instance_name}-"
+  image_id      = data.aws_ami.app_ami.id
+  instance_type = var.instance_type
+  key_name      = aws_key_pair.webserver.key_name
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.webserver.name
+  }
+
+  network_interfaces {
+    associate_public_ip_address = true
+    security_groups             = [aws_security_group.webserver.id]
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = var.instance_name
+    }
+  }
+}
+
+resource "aws_autoscaling_group" "webserver" {
+  name                = "${var.instance_name}-asg"
+  min_size            = var.min_size
+  max_size            = var.max_size
+  desired_capacity    = var.desired_capacity
+  vpc_zone_identifier = var.subnet_ids
+  target_group_arns   = [aws_lb_target_group.webserver.arn]
+
+  launch_template {
+    id      = aws_launch_template.webserver.id
+    version = "$Latest"
+  }
+
+  tag {
+    key                 = "Name"
+    value               = "${var.instance_name}-asg"
+    propagate_at_launch = false
   }
 }

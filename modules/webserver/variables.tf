@@ -13,9 +13,27 @@ variable "vpc_id" {
   type        = string
 }
 
-variable "subnet_id" {
-  description = "ID of the subnet to deploy the EC2 instance into"
-  type        = string
+variable "subnet_ids" {
+  description = "List of subnet IDs for the ASG and ALB (should span multiple AZs)"
+  type        = list(string)
+}
+
+variable "min_size" {
+  description = "Minimum number of instances in the ASG"
+  type        = number
+  default     = 1
+}
+
+variable "max_size" {
+  description = "Maximum number of instances in the ASG"
+  type        = number
+  default     = 3
+}
+
+variable "desired_capacity" {
+  description = "Desired number of instances in the ASG"
+  type        = number
+  default     = 1
 }
 
 variable "public_key" {

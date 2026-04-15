@@ -1,24 +1,51 @@
 # terraform-aws-infra
 
-Terraform project provisioning AWS EC2 webserver infrastructure across isolated environments, using a reusable module and remote state backend.
+Terraform project provisioning production-grade AWS webserver infrastructure across isolated environments. Features a custom VPC, Auto Scaling Group behind an Application Load Balancer, TLS termination via ACM, Route 53 DNS, CloudWatch observability, and a GitHub Actions CI/CD pipeline with OIDC authentication.
 
 ## Architecture
 
 ```
 .
-├── bootstrap/          # S3 state bucket + DynamoDB lock table
+├── bootstrap/          # One-time setup: S3 state bucket, DynamoDB lock table, GitHub OIDC role
 ├── envs/
-│   ├── dev/            # Development environment (t3.nano)
-│   └── prod/           # Production environment (t3.small)
-└── modules/
-    └── webserver/      # Reusable EC2 + security group module
+│   ├── dev/            # Development environment (t3.nano, dev.myinfracode.com)
+│   └── prod/           # Production environment (t3.small, myinfracode.com)
+├── modules/
+│   ├── vpc/            # VPC, public/private subnets, IGW, route tables
+│   └── webserver/      # ASG, ALB, ACM cert, Route 53, CloudWatch, IAM, key pair
+├── .github/
+│   └── workflows/      # CI/CD: plan on PR, apply on merge
+├── .pre-commit-config.yaml
+└── docs/
+    └── onboarding.md
 ```
 
 ## What it provisions
 
 Each environment deploys:
-- **EC2 instance** — Bitnami Tomcat AMI (latest), configurable instance type
-- **Security group** — HTTP (80) and HTTPS (443) inbound, all outbound
+
+| Resource | Details |
+|---|---|
+| VPC | Custom CIDR, DNS enabled |
+| Subnets | 2 public + 2 private across `us-west-2a` and `us-west-2b` |
+| Internet Gateway + Route Table | Public subnet internet access |
+| Security groups | ALB SG (HTTP/HTTPS from internet), webserver SG (HTTP from ALB only, SSH restricted) |
+| Key pair | SSH access using provided public key |
+| IAM role + instance profile | SSM Session Manager + CloudWatch agent access |
+| Application Load Balancer | Public, multi-AZ, HTTP → HTTPS redirect |
+| ACM certificate | DNS-validated TLS certificate |
+| Route 53 records | Alias A record + cert validation CNAME |
+| Launch Template + ASG | Min 1, max 3 instances across public subnets |
+| CloudWatch log group | `/webserver-{env}/application`, 30-day retention |
+| CloudWatch alarms | CPU > 80%, unhealthy host count > 0 |
+| SNS topic + subscription | Email notifications for alarms |
+
+## Environments
+
+| Environment | Instance Type | Domain | State Key |
+|---|---|---|---|
+| dev | `t3.nano` | `dev.myinfracode.com` | `envs/dev/terraform.tfstate` |
+| prod | `t3.small` | `myinfracode.com` | `envs/prod/terraform.tfstate` |
 
 ## Remote state
 
@@ -27,60 +54,67 @@ State is stored in S3 with DynamoDB locking:
 - **Lock table:** `terraform-aws-infra-locks`
 - Each environment has its own isolated state key
 
-## Documentation
+## CI/CD pipeline
 
-- [Onboarding guide](docs/onboarding.md) — setup, workflow, conventions and troubleshooting
+Changes are deployed exclusively through GitHub Actions — no manual `terraform apply` required.
+
+| Trigger | Workflow | Behaviour |
+|---|---|---|
+| Pull request to `main` | `terraform-plan.yml` | fmt check + validate + plan for dev and prod; posts plan as PR comment |
+| Merge to `main` | `terraform-apply.yml` | Auto-applies dev; prod requires manual approval via GitHub environment |
+
+Authentication uses OIDC — no long-lived AWS credentials stored as secrets.
 
 ## Prerequisites
 
 - Terraform >= 1.0
-- AWS credentials configured
-- Bootstrap infrastructure deployed (one-time setup)
+- AWS CLI configured
+- Bootstrap infrastructure deployed (see below)
+- GitHub repository secrets configured (see [Onboarding guide](docs/onboarding.md))
 
 ## Bootstrap (first time only)
 
 ```bash
 cd bootstrap
 terraform init
-terraform apply
+terraform apply -var="github_repo=frnxcode/terraform-aws-infra"
 ```
 
-## Usage
+This provisions the S3 state bucket, DynamoDB lock table, and the GitHub Actions OIDC IAM role. The role ARN is output and must be added as `AWS_ROLE_ARN` in GitHub repository secrets.
 
-Each environment is operated independently:
+## Local development
+
+For running Terraform locally (outside CI/CD), create a `terraform.tfvars` file in the environment directory — it is gitignored:
+
+```hcl
+# envs/dev/terraform.tfvars
+public_key       = "ssh-ed25519 AAAA..."
+ssh_allowed_cidr = "YOUR_IP/32"
+alarm_email      = "you@example.com"
+```
+
+Then:
 
 ```bash
-# Development
 cd envs/dev
 terraform init
 terraform plan
 terraform apply
-
-# Production
-cd envs/prod
-terraform init
-terraform plan
-terraform apply
 ```
 
-## Environments
+## Documentation
 
-| Environment | Instance Type | State Key |
-|---|---|---|
-| dev | `t3.nano` | `envs/dev/terraform.tfstate` |
-| prod | `t3.small` | `envs/prod/terraform.tfstate` |
+- [Onboarding guide](docs/onboarding.md) — full setup, workflow, conventions and troubleshooting
 
-## Key concepts covered
+## Key concepts
 
-- Provider and Terraform version pinning
-- Variables and outputs
-- Security groups with `create_before_destroy` lifecycle
-- Reusable modules
-- Remote state backend (S3 + DynamoDB)
-- Isolated environments with shared module
-- Custom VPC with public/private subnets across multiple AZs
-- IAM instance profile with SSM and CloudWatch agent policies
-- Auto Scaling Group + Application Load Balancer
-- ACM certificate with DNS validation via Route 53
-- CloudWatch alarms and SNS notifications
-- GitHub Actions CI/CD with OIDC authentication (no long-lived keys)
+- Custom VPC with isolated public/private subnets across multiple AZs
+- Reusable modules with explicit variable contracts
+- Remote state backend with S3 + DynamoDB locking
+- Isolated environments sharing a common module
+- IAM least-privilege with SSM Session Manager (no bastion host needed)
+- ALB + ASG for reliability and horizontal scaling
+- ACM + Route 53 for TLS termination and DNS management
+- CloudWatch alarms with SNS for observability
+- GitHub Actions CI/CD with OIDC (no long-lived credentials)
+- Pre-commit hooks enforcing format and lint standards

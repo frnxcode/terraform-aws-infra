@@ -6,34 +6,37 @@ This guide walks you through everything you need to understand, work with, and c
 
 ## What is this project?
 
-`terraform-aws-infra` is an AWS infrastructure project managed with Terraform. It provisions EC2 webserver instances with security groups across isolated `dev` and `prod` environments, using a shared reusable module and a remote state backend.
+`terraform-aws-infra` provisions production-grade AWS webserver infrastructure using Terraform. It deploys a Bitnami Tomcat application across `dev` and `prod` environments, each with its own VPC, Auto Scaling Group, Application Load Balancer, TLS certificate, DNS records, and CloudWatch observability. Changes are deployed exclusively through a GitHub Actions CI/CD pipeline.
 
 ---
 
 ## Prerequisites
-
-Before you begin, ensure you have the following installed and configured:
 
 | Tool | Purpose | Install |
 |---|---|---|
 | Terraform >= 1.0 | Infrastructure provisioning | [terraform.io](https://developer.hashicorp.com/terraform/install) |
 | AWS CLI | AWS authentication | [aws.amazon.com/cli](https://aws.amazon.com/cli/) |
 | Git | Version control | [git-scm.com](https://git-scm.com) |
-| GitHub CLI (`gh`) | Repo management | `brew install gh` |
+| pre-commit | Git hook runner | `brew install pre-commit` |
+| tflint | Terraform linter | `brew install tflint` |
 
 ### AWS credentials
 
-Configure your AWS credentials before running any Terraform commands:
-
 ```bash
 aws configure
+# Region: us-west-2
+# Output: json
 ```
 
-You will be prompted for:
-- AWS Access Key ID
-- AWS Secret Access Key
-- Default region: `us-west-2`
-- Default output format: `json`
+### Pre-commit hooks
+
+Install the hooks after cloning:
+
+```bash
+pre-commit install
+```
+
+This enforces `terraform fmt`, `terraform validate`, and `tflint` on every commit.
 
 ---
 
@@ -41,145 +44,175 @@ You will be prompted for:
 
 ```
 terraform-aws-infra/
-├── bootstrap/              # One-time setup: S3 bucket + DynamoDB lock table
+├── bootstrap/                  # One-time setup: state backend + GitHub OIDC role
 │   ├── main.tf
+│   ├── variables.tf
 │   ├── outputs.tf
 │   └── providers.tf
 ├── envs/
-│   ├── dev/                # Development environment
-│   │   ├── main.tf
+│   ├── dev/                    # Development environment
+│   │   ├── main.tf             # VPC + webserver module calls
+│   │   ├── variables.tf        # public_key, ssh_allowed_cidr, alarm_email
 │   │   ├── outputs.tf
-│   │   └── providers.tf
-│   └── prod/               # Production environment
-│       ├── main.tf
-│       ├── outputs.tf
-│       └── providers.tf
+│   │   └── providers.tf        # S3 backend + AWS provider
+│   └── prod/                   # Production environment (same structure)
 ├── modules/
-│   └── webserver/          # Reusable EC2 + security group module
+│   ├── vpc/                    # VPC, subnets, IGW, route tables
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   └── webserver/              # ASG, ALB, ACM, Route 53, IAM, CloudWatch
 │       ├── main.tf
 │       ├── variables.tf
 │       └── outputs.tf
-├── docs/
-│   └── onboarding.md       # This file
-├── providers.tf            # AWS provider + S3 backend config
-└── .gitignore
+├── .github/
+│   └── workflows/
+│       ├── terraform-plan.yml  # Runs on PR: fmt + validate + plan
+│       └── terraform-apply.yml # Runs on merge: apply dev, then prod with approval
+├── .pre-commit-config.yaml
+├── .tflint.hcl
+└── docs/
+    └── onboarding.md
 ```
 
 ---
 
 ## Core concepts
 
-### Modules
+### VPC module
 
-The `modules/webserver` module is the building block of this project. It provisions:
-- An EC2 instance using the latest Bitnami Tomcat AMI
-- A security group allowing HTTP (port 80) and HTTPS (port 443) inbound traffic
+Each environment gets its own isolated VPC with:
+- 2 public subnets across `us-west-2a` and `us-west-2b` — ALB and EC2 instances live here
+- 2 private subnets — reserved for future use (e.g. RDS, private ASG)
+- Internet Gateway + public route table
 
-Both `dev` and `prod` environments call this module with different inputs — same code, different configuration.
+| Environment | VPC CIDR | Public subnets | Private subnets |
+|---|---|---|---|
+| dev | `10.0.0.0/16` | `10.0.1.0/24`, `10.0.2.0/24` | `10.0.101.0/24`, `10.0.102.0/24` |
+| prod | `10.1.0.0/16` | `10.1.1.0/24`, `10.1.2.0/24` | `10.1.101.0/24`, `10.1.102.0/24` |
+
+### Webserver module
+
+The `modules/webserver` module is the core of each environment. It provisions:
+
+- **Key pair** — registers your SSH public key with AWS
+- **IAM role + instance profile** — grants SSM Session Manager access (no bastion host needed) and CloudWatch agent permissions
+- **ALB security group** — accepts HTTP/HTTPS from the internet
+- **Webserver security group** — accepts HTTP only from the ALB (not the open internet), SSH from a restricted CIDR
+- **Application Load Balancer** — public, multi-AZ, HTTP redirects to HTTPS
+- **ACM certificate** — DNS-validated TLS certificate for the environment domain
+- **Route 53 records** — alias A record pointing the domain to the ALB, CNAME for cert validation
+- **Launch Template** — EC2 configuration (AMI, instance type, IAM profile, security group)
+- **Auto Scaling Group** — min 1 / max 3 / desired 1, spans both public subnets
+- **CloudWatch log group** — `/{instance_name}/application`, 30-day retention
+- **SNS topic + email subscription** — receives alarm notifications
+- **CloudWatch alarms** — CPU > 80% and unhealthy host count > 0
 
 ### Remote state
 
-Terraform state is stored remotely in S3 rather than on local disk. This means:
-- State is shared — anyone with AWS access can run Terraform against the same infrastructure
-- State is versioned — you can roll back to a previous state if something goes wrong
-- State is locked — DynamoDB prevents two people from running `apply` simultaneously
-
-Each environment has its own isolated state file:
+Terraform state is stored in S3 with DynamoDB locking. Each environment has its own isolated state key — a destroy in dev has zero effect on prod.
 
 | Environment | State key |
 |---|---|
-| root | `global/s3/terraform.tfstate` |
 | dev | `envs/dev/terraform.tfstate` |
 | prod | `envs/prod/terraform.tfstate` |
 
-### Environments
+### CI/CD pipeline
 
-`dev` and `prod` are completely isolated — separate state, separate AWS resources. A `destroy` in `dev` has no effect on `prod`.
+All infrastructure changes go through GitHub Actions:
 
-| Environment | Instance type | Use |
-|---|---|---|
-| dev | `t3.nano` | Testing and development |
-| prod | `t3.small` | Production workloads |
+1. **Open a PR** → `terraform-plan.yml` runs fmt check, validate, and plan for both environments. The plan output is posted as a PR comment.
+2. **Merge to main** → `terraform-apply.yml` automatically applies dev. Prod requires manual approval via the GitHub `prod` environment protection rule.
+
+GitHub Actions authenticates to AWS using OIDC — no long-lived access keys are stored anywhere.
 
 ---
 
 ## First-time setup (bootstrap)
 
-The bootstrap config creates the S3 bucket and DynamoDB table used for remote state. This only needs to be run once per AWS account.
+The bootstrap creates the S3 state bucket, DynamoDB lock table, and the GitHub Actions OIDC IAM role. Run this once per AWS account:
 
 ```bash
 cd bootstrap
 terraform init
-terraform apply
+terraform apply -var="github_repo=frnxcode/terraform-aws-infra"
 ```
 
-This provisions:
-- S3 bucket: `terraform-aws-infra-state-<account-id>` (versioned, encrypted, private)
-- DynamoDB table: `terraform-aws-infra-locks`
+Copy the `github_actions_role_arn` from the output — you'll need it in the next step.
 
-> The S3 bucket has `prevent_destroy = true` — Terraform will refuse to delete it to protect state history.
+### GitHub repository secrets
+
+Go to **Settings → Secrets and variables → Actions** in the GitHub repo and add:
+
+| Secret | Value |
+|---|---|
+| `AWS_ROLE_ARN` | Role ARN from bootstrap output |
+| `TF_VAR_PUBLIC_KEY` | Your SSH public key (`cat ~/.ssh/id_ed25519_francis_mac.pub`) |
+| `TF_VAR_SSH_ALLOWED_CIDR` | Your IP with `/32` (e.g. `1.2.3.4/32`) |
+| `TF_VAR_ALARM_EMAIL` | Email address for CloudWatch alarm notifications |
+
+### GitHub environments
+
+Go to **Settings → Environments** and create:
+- `dev` — no protection rules (applies automatically)
+- `prod` — add yourself as a required reviewer (gates the prod apply)
 
 ---
 
 ## Day-to-day workflow
 
-### Working in an environment
+### Making a change
 
-Always `cd` into the environment directory before running Terraform commands.
+1. Create a feature branch
+2. Make your changes
+3. Open a pull request to `main`
+4. Review the plan output posted as a PR comment
+5. Merge — dev applies automatically, approve prod when ready
 
-```bash
-# Development
-cd envs/dev
-terraform init      # first time only, or after provider/module changes
-terraform plan      # preview changes
-terraform apply     # apply changes
-terraform destroy   # tear down all resources
+### Local development
+
+For running Terraform locally, create a `terraform.tfvars` file in the environment directory (gitignored):
+
+```hcl
+public_key       = "ssh-ed25519 AAAA..."
+ssh_allowed_cidr = "YOUR_IP/32"
+alarm_email      = "you@example.com"
 ```
 
 ```bash
-# Production
-cd envs/prod
+cd envs/dev
 terraform init
 terraform plan
 terraform apply
 ```
 
-### Accessing the application after apply
+### Accessing the application
 
-After a successful `terraform apply`, Terraform outputs the public IP and DNS of the instance:
+After apply, the application is available at:
 
-```
-Outputs:
+| Environment | URL |
+|---|---|
+| dev | `https://dev.myinfracode.com` |
+| prod | `https://myinfracode.com` |
 
-public_ip  = "44.251.243.8"
-public_dns = "ec2-44-251-243-8.us-west-2.compute.amazonaws.com"
-```
+Allow 1-2 minutes after apply for the ASG instance to boot and pass health checks before the ALB serves traffic.
 
-Open a browser and navigate to:
-
-```
-http://<public_ip>
-```
-
-You should see the Bitnami Tomcat welcome page. Allow 1-2 minutes after apply for the instance to fully boot before accessing it.
-
-To retrieve the outputs at any time without re-applying:
+To retrieve outputs at any time:
 
 ```bash
 terraform output
 ```
 
-### Standard workflow for making changes
-
-1. Edit the relevant Terraform files (module or environment config)
-2. Run `terraform plan` to review the impact
-3. Run `terraform apply` to apply
-4. Commit and push to GitHub
+### SSH access
 
 ```bash
-git add .
-git commit -m "describe your change"
-git push
+ssh -i ~/.ssh/id_ed25519_francis_mac bitnami@<instance-public-ip>
+```
+
+Or use AWS Session Manager (no SSH key required):
+
+```bash
+aws ssm start-session --target <instance-id>
 ```
 
 ---
@@ -192,49 +225,95 @@ git push
 | `terraform plan` | Preview what changes will be made |
 | `terraform apply` | Apply the planned changes |
 | `terraform destroy` | Destroy all managed resources |
+| `terraform output` | Show current outputs without re-applying |
+| `terraform state list` | List all resources in state |
 | `terraform state mv <src> <dst>` | Rename a resource in state without destroying it |
-| `terraform init -migrate-state` | Migrate state to a new backend |
+| `terraform force-unlock <lock-id>` | Release a stuck state lock |
 
 ---
 
-## Important conventions
+## Conventions
 
-- **Always run `terraform plan` before `apply`** — never apply blindly
+- **All changes go through PRs** — never apply directly to prod from a local machine
 - **Never commit state files** — `.gitignore` excludes `*.tfstate` and `*.tfstate.*`
-- **Use `terraform state mv` when renaming** — avoids unnecessary destroy/recreate
-- **Bootstrap infrastructure is persistent** — do not destroy the S3 bucket or DynamoDB table
-- **`create_before_destroy` on security groups** — prevents dependency violations when renaming
+- **Never commit `terraform.tfvars`** — gitignored; use GitHub secrets for CI/CD
+- **Always review the plan** — before approving a prod deployment, read the plan comment on the PR
+- **Bootstrap is persistent** — the S3 bucket has `prevent_destroy = true`; never destroy it
+- **Destroy when not testing** — ALB and EC2 instances incur hourly costs; tear down idle environments
+
+---
+
+## Cost awareness
+
+| Resource | Approx. cost |
+|---|---|
+| ALB | ~$0.008/hour (~$6/month) per environment |
+| t3.nano (dev) | ~$0.005/hour |
+| t3.small (prod) | ~$0.021/hour |
+| S3 + DynamoDB | Minimal (< $1/month) |
+| CloudWatch | Minimal for low traffic |
+
+Tear down an environment when not in use:
+
+```bash
+cd envs/dev
+terraform destroy
+```
 
 ---
 
 ## Troubleshooting
 
-### `DependencyViolation` when destroying a security group
-AWS won't delete a security group that's still attached to an instance. This project uses `create_before_destroy = true` on security groups to handle this automatically. If you hit this manually, check that the instance has been terminated first.
+### ACM certificate stuck in `PENDING_VALIDATION`
+The certificate validation CNAME record must resolve before ACM issues the cert. This can take 1-5 minutes after apply. Check the Route 53 console to confirm the validation record exists.
 
-### `Saved plan is stale`
-The saved plan file (`tfplan`) is invalidated if state changes after the plan was created (e.g. a `destroy` run). Re-run `terraform plan` to generate a fresh plan.
+### ALB returns 502 Bad Gateway
+The ASG instance may still be booting or failing health checks. Wait 2-3 minutes and check the target group health in the AWS console (EC2 → Target Groups).
 
-### `InvalidGroup.Duplicate` on security group creation
-Two resources with the same name exist in the same VPC. This can happen during a failed rename. Check the AWS console for orphaned security groups and delete them manually, then re-run `terraform apply`.
+### SNS alarm emails not arriving
+You must confirm the SNS subscription by clicking the link in the confirmation email AWS sends after the first apply. Check your spam folder.
 
 ### State lock not released
-If a Terraform run is interrupted, the DynamoDB lock may not be released. Run:
+If a Terraform run is interrupted, the DynamoDB lock may not be released:
 ```bash
 terraform force-unlock <lock-id>
 ```
 The lock ID is shown in the error message.
 
+### `InvalidGroup.Duplicate` on security group creation
+Two resources with the same name exist in the VPC. Check the AWS console for orphaned security groups, delete them manually, then re-run `terraform apply`.
+
+### CI/CD plan job skipped
+The plan jobs depend on the `fmt-validate` job passing. If they are skipped, check the `fmt-validate` job logs for a formatting or validation error. Run `terraform fmt -recursive` locally and push a fix.
+
 ---
 
 ## AWS resources managed
 
-| Resource | Description |
-|---|---|
-| `aws_instance` | EC2 webserver instance |
-| `aws_security_group` | Inbound HTTP/HTTPS rules |
-| `aws_s3_bucket` | Remote state storage |
-| `aws_dynamodb_table` | State locking |
+| Resource | Module | Description |
+|---|---|---|
+| `aws_vpc` | vpc | Isolated network per environment |
+| `aws_subnet` | vpc | 2 public + 2 private subnets |
+| `aws_internet_gateway` | vpc | Public internet access |
+| `aws_route_table` | vpc | Public subnet routing |
+| `aws_key_pair` | webserver | SSH public key |
+| `aws_iam_role` | webserver | EC2 instance role |
+| `aws_iam_instance_profile` | webserver | Attaches role to instances |
+| `aws_security_group` (x2) | webserver | ALB SG and webserver SG |
+| `aws_lb` | webserver | Application Load Balancer |
+| `aws_lb_target_group` | webserver | Health-checked target group |
+| `aws_lb_listener` (x2) | webserver | HTTP redirect + HTTPS forward |
+| `aws_acm_certificate` | webserver | TLS certificate |
+| `aws_route53_record` (x2) | webserver | Alias A record + cert validation |
+| `aws_launch_template` | webserver | EC2 instance configuration |
+| `aws_autoscaling_group` | webserver | Auto Scaling Group |
+| `aws_cloudwatch_log_group` | webserver | Application logs |
+| `aws_sns_topic` | webserver | Alarm notification topic |
+| `aws_cloudwatch_metric_alarm` (x2) | webserver | CPU + unhealthy hosts |
+| `aws_s3_bucket` | bootstrap | Remote state storage |
+| `aws_dynamodb_table` | bootstrap | State locking |
+| `aws_iam_openid_connect_provider` | bootstrap | GitHub Actions OIDC |
+| `aws_iam_role` | bootstrap | GitHub Actions CI/CD role |
 
 ---
 

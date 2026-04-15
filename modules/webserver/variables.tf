@@ -17,3 +17,13 @@ variable "subnet_id" {
   description = "ID of the subnet to deploy the EC2 instance into"
   type        = string
 }
+
+variable "public_key" {
+  description = "SSH public key material for the key pair"
+  type        = string
+}
+
+variable "ssh_allowed_cidr" {
+  description = "CIDR block allowed to SSH into the instance (restrict to your IP)"
+  type        = string
+}

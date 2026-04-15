@@ -20,6 +20,10 @@ Terraform project provisioning production-grade AWS webserver infrastructure acr
     └── onboarding.md
 ```
 
+## Live deployment
+
+![Deployed Bitnami Tomcat app](docs/assets/deployed-app.png)
+
 ## What it provisions
 
 Each environment deploys:

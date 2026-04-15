@@ -17,6 +17,7 @@ data "aws_ami" "app_ami" {
 resource "aws_security_group" "webserver" {
   name        = "${var.instance_name}-sg"
   description = "Allow HTTP and HTTPS inbound traffic"
+  vpc_id      = var.vpc_id
 
   ingress {
     description = "HTTP"
@@ -53,6 +54,7 @@ resource "aws_security_group" "webserver" {
 resource "aws_instance" "webserver" {
   ami                    = data.aws_ami.app_ami.id
   instance_type          = var.instance_type
+  subnet_id              = var.subnet_id
   vpc_security_group_ids = [aws_security_group.webserver.id]
 
   tags = {

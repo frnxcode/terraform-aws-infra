@@ -77,7 +77,7 @@ resource "aws_iam_role" "github_actions" {
 }
 
 resource "aws_iam_role_policy_attachment" "github_actions" {
-  role       = aws_iam_role.github_actions.name
+  role = aws_iam_role.github_actions.name
   # AdministratorAccess is used here for simplicity in this learning project.
   # In production, scope this down to only the actions Terraform needs.
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"

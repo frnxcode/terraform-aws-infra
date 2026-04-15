@@ -45,3 +45,13 @@ variable "ssh_allowed_cidr" {
   description = "CIDR block allowed to SSH into the instance (restrict to your IP)"
   type        = string
 }
+
+variable "zone_id" {
+  description = "Route 53 hosted zone ID for DNS validation and alias record"
+  type        = string
+}
+
+variable "domain_name" {
+  description = "Domain name for the ACM certificate and Route 53 alias record"
+  type        = string
+}

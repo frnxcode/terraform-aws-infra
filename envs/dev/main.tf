@@ -1,3 +1,8 @@
+data "aws_route53_zone" "main" {
+  name         = "myinfracode.com"
+  private_zone = false
+}
+
 module "vpc" {
   source = "../../modules/vpc"
 
@@ -15,4 +20,6 @@ module "webserver" {
   subnet_ids       = module.vpc.public_subnet_ids
   public_key       = var.public_key
   ssh_allowed_cidr = var.ssh_allowed_cidr
+  zone_id          = data.aws_route53_zone.main.zone_id
+  domain_name      = "dev.myinfracode.com"
 }

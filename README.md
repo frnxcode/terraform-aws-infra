@@ -78,4 +78,9 @@ terraform apply
 - Reusable modules
 - Remote state backend (S3 + DynamoDB)
 - Isolated environments with shared module
-- `terraform state mv` for renaming resources without destroy/recreate
+- Custom VPC with public/private subnets across multiple AZs
+- IAM instance profile with SSM and CloudWatch agent policies
+- Auto Scaling Group + Application Load Balancer
+- ACM certificate with DNS validation via Route 53
+- CloudWatch alarms and SNS notifications
+- GitHub Actions CI/CD with OIDC authentication (no long-lived keys)

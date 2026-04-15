@@ -1,15 +1,9 @@
 output "instance_ami" {
-  value = aws_instance.webserver.ami
+  description = "AMI used by the launch template"
+  value       = data.aws_ami.app_ami.id
 }
 
-output "instance_arn" {
-  value = aws_instance.webserver.arn
-}
-
-output "public_ip" {
-  value = aws_instance.webserver.public_ip
-}
-
-output "public_dns" {
-  value = aws_instance.webserver.public_dns
+output "alb_dns_name" {
+  description = "DNS name of the Application Load Balancer"
+  value       = aws_lb.webserver.dns_name
 }

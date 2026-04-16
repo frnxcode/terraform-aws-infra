@@ -101,14 +101,6 @@ resource "aws_security_group" "webserver" {
     security_groups = [aws_security_group.alb.id]
   }
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.ssh_allowed_cidr]
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
@@ -130,7 +122,7 @@ resource "aws_lb" "webserver" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = var.subnet_ids
+  subnets            = var.alb_subnet_ids
 
   tags = {
     Name = "${var.instance_name}-alb"
@@ -243,7 +235,7 @@ resource "aws_launch_template" "webserver" {
   }
 
   network_interfaces {
-    associate_public_ip_address = true
+    associate_public_ip_address = false
     security_groups             = [aws_security_group.webserver.id]
   }
 
@@ -272,6 +264,33 @@ resource "aws_autoscaling_group" "webserver" {
     key                 = "Name"
     value               = "${var.instance_name}-asg"
     propagate_at_launch = false
+  }
+}
+
+resource "aws_autoscaling_policy" "cpu" {
+  name                   = "${var.instance_name}-cpu-scaling"
+  autoscaling_group_name = aws_autoscaling_group.webserver.name
+  policy_type            = "TargetTrackingScaling"
+
+  target_tracking_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ASGAverageCPUUtilization"
+    }
+    target_value = var.cpu_scaling_target
+  }
+}
+
+resource "aws_autoscaling_policy" "requests" {
+  name                   = "${var.instance_name}-request-scaling"
+  autoscaling_group_name = aws_autoscaling_group.webserver.name
+  policy_type            = "TargetTrackingScaling"
+
+  target_tracking_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ALBRequestCountPerTarget"
+      resource_label         = "${aws_lb.webserver.arn_suffix}/${aws_lb_target_group.webserver.arn_suffix}"
+    }
+    target_value = var.alb_request_scaling_target
   }
 }
 

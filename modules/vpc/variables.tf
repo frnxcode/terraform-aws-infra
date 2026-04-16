@@ -17,3 +17,9 @@ variable "env_name" {
   description = "Environment name used for tagging (e.g. dev, prod)"
   type        = string
 }
+
+variable "flow_log_retention_days" {
+  description = "Number of days to retain VPC flow logs in CloudWatch"
+  type        = number
+  default     = 30
+}

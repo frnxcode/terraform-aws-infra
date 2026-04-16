@@ -9,3 +9,11 @@ output "alb_dns_name" {
 output "url" {
   value = module.webserver.domain_name
 }
+
+output "db_endpoint" {
+  value = module.rds.db_endpoint
+}
+
+output "db_secret_arn" {
+  value = module.rds.secret_arn
+}

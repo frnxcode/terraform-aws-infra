@@ -13,8 +13,13 @@ variable "vpc_id" {
   type        = string
 }
 
+variable "alb_subnet_ids" {
+  description = "List of public subnet IDs for the ALB (should span multiple AZs)"
+  type        = list(string)
+}
+
 variable "subnet_ids" {
-  description = "List of subnet IDs for the ASG and ALB (should span multiple AZs)"
+  description = "List of private subnet IDs for the ASG instances (should span multiple AZs)"
   type        = list(string)
 }
 
@@ -41,9 +46,16 @@ variable "public_key" {
   type        = string
 }
 
-variable "ssh_allowed_cidr" {
-  description = "CIDR block allowed to SSH into the instance (restrict to your IP)"
-  type        = string
+variable "cpu_scaling_target" {
+  description = "Target average CPU utilization (%) that triggers scale out/in"
+  type        = number
+  default     = 50
+}
+
+variable "alb_request_scaling_target" {
+  description = "Target number of ALB requests per instance that triggers scale out/in"
+  type        = number
+  default     = 1000
 }
 
 variable "alarm_email" {

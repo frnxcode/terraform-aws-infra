@@ -10,37 +10,34 @@ Live at **[myinfracode.com](https://myinfracode.com)** (prod) and **[dev.myinfra
 
 ## Architecture
 
-```
-                         ┌────────────────────────────────────────────────┐
-                         │                    AWS VPC                     │
-                         │                                                │
-                         │  Public Subnets (us-west-2a / us-west-2b)     │
-                         │  ┌─────────────┐      ┌────────────────────┐  │
-  Internet ─────────────►│  │     WAF     │      │    NAT Gateway     │─►│ outbound
-                         │  │  Web ACL    │      │   (outbound only)  │  │
-                         │  └──────┬──────┘      └─────────▲──────────┘  │
-                         │         │                        │             │
-                         │  ┌──────▼──────────────────────┐│             │
-                         │  │   Application Load Balancer  ││             │
-                         │  │   HTTP → HTTPS redirect      ││             │
-                         │  └──────┬──────────────────────┘│             │
-                         │         │                        │             │
-                         │  Private Subnets (us-west-2a / us-west-2b)    │
-                         │  ┌──────▼──────────────────────┐│             │
-                         │  │     Auto Scaling Group       ├┘             │
-                         │  │  EC2 · Bitnami Tomcat        │             │
-                         │  │  min 1 · max 3 · SSM access  │             │
-                         │  └──────┬──────────────────────┘              │
-                         │         │ port 5432                            │
-                         │  ┌──────▼──────────────────────┐              │
-                         │  │      RDS PostgreSQL          │              │
-                         │  │  encrypted · 7-day backups   │              │
-                         │  └─────────────────────────────┘              │
-                         │                                                │
-                         └────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Internet(["🌐 Internet"])
 
-  Route 53 → ALB alias A record
-  ACM      → DNS-validated TLS certificate
+    subgraph VPC["AWS VPC (us-west-2)"]
+        subgraph Public["Public Subnets — us-west-2a / us-west-2b"]
+            WAF["WAF Web ACL\n(IP Reputation · Core Rules · Known Bad Inputs)"]
+            ALB["Application Load Balancer\n(HTTP → HTTPS redirect)"]
+            NAT["NAT Gateway\n(outbound only)"]
+        end
+
+        subgraph Private["Private Subnets — us-west-2a / us-west-2b"]
+            ASG["Auto Scaling Group\nEC2 · Bitnami Tomcat\nmin 1 · max 3 · SSM access"]
+            RDS["RDS PostgreSQL 16\nencrypted · Multi-AZ (prod) · 7-day backups"]
+        end
+    end
+
+    DNS["Route 53\nAlias A record"]
+    CERT["ACM Certificate\nDNS-validated TLS"]
+
+    Internet --> DNS
+    DNS --> WAF
+    WAF --> ALB
+    ALB --> ASG
+    ASG --> RDS
+    ASG --> NAT
+    NAT --> Internet
+    CERT -. "attached to" .-> ALB
 ```
 
 ### Traffic flow

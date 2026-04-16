@@ -11,33 +11,33 @@ Live at **[myinfracode.com](https://myinfracode.com)** (prod) and **[dev.myinfra
 ## Architecture
 
 ```
-                    ┌──────────────────────────────────────────────────────────┐
-                    │                       AWS VPC                            │
-                    │                                                          │
-                    │   Public Subnets (us-west-2a / us-west-2b)              │
-                    │  ┌──────────────────┐       ┌──────────────────────┐    │
-  Internet  ──────► │  │       WAF        │       │    NAT Gateway       │ ──► Internet
-  (HTTPS)           │  │   Web ACL        │       │   (outbound only)    │    │
-                    │  └────────┬─────────┘       └──────────▲───────────┘    │
-                    │           │                             │                │
-                    │  ┌────────▼─────────────────────────┐  │                │
-                    │  │     Application Load Balancer     │  │                │
-                    │  │     HTTP → HTTPS redirect         │  │                │
-                    │  └────────┬─────────────────────────┘  │                │
-                    │           │                             │                │
-                    │   Private Subnets (us-west-2a / us-west-2b)             │
-                    │  ┌────────▼─────────────────────────┐  │                │
-                    │  │       Auto Scaling Group          │  │                │
-                    │  │    EC2 · Bitnami Tomcat           ├──┘                │
-                    │  │    min 1 · max 3 · SSM access     │                  │
-                    │  └────────┬─────────────────────────┘                   │
-                    │           │ port 5432                                    │
-                    │  ┌────────▼─────────────────────────┐                   │
-                    │  │         RDS PostgreSQL            │                   │
-                    │  │   encrypted · 7-day backups       │                   │
-                    │  └──────────────────────────────────┘                   │
-                    │                                                          │
-                    └──────────────────────────────────────────────────────────┘
+                         ┌────────────────────────────────────────────────┐
+                         │                    AWS VPC                     │
+                         │                                                │
+                         │  Public Subnets (us-west-2a / us-west-2b)     │
+                         │  ┌─────────────┐      ┌────────────────────┐  │
+  Internet ─────────────►│  │     WAF     │      │    NAT Gateway     │─►│ outbound
+                         │  │  Web ACL    │      │   (outbound only)  │  │
+                         │  └──────┬──────┘      └─────────▲──────────┘  │
+                         │         │                        │             │
+                         │  ┌──────▼──────────────────────┐│             │
+                         │  │   Application Load Balancer  ││             │
+                         │  │   HTTP → HTTPS redirect      ││             │
+                         │  └──────┬──────────────────────┘│             │
+                         │         │                        │             │
+                         │  Private Subnets (us-west-2a / us-west-2b)    │
+                         │  ┌──────▼──────────────────────┐│             │
+                         │  │     Auto Scaling Group       ├┘             │
+                         │  │  EC2 · Bitnami Tomcat        │             │
+                         │  │  min 1 · max 3 · SSM access  │             │
+                         │  └──────┬──────────────────────┘              │
+                         │         │ port 5432                            │
+                         │  ┌──────▼──────────────────────┐              │
+                         │  │      RDS PostgreSQL          │              │
+                         │  │  encrypted · 7-day backups   │              │
+                         │  └─────────────────────────────┘              │
+                         │                                                │
+                         └────────────────────────────────────────────────┘
 
   Route 53 → ALB alias A record
   ACM      → DNS-validated TLS certificate

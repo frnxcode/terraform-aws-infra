@@ -285,6 +285,11 @@ resource "aws_autoscaling_policy" "requests" {
   autoscaling_group_name = aws_autoscaling_group.webserver.name
   policy_type            = "TargetTrackingScaling"
 
+  depends_on = [
+    aws_lb_listener.https,
+    aws_lb_listener.http,
+  ]
+
   target_tracking_configuration {
     predefined_metric_specification {
       predefined_metric_type = "ALBRequestCountPerTarget"

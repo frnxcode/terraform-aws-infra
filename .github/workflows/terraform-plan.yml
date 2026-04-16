@@ -36,7 +36,6 @@ jobs:
     environment: dev
     env:
       TF_VAR_public_key: ${{ secrets.TF_VAR_PUBLIC_KEY }}
-      TF_VAR_ssh_allowed_cidr: ${{ secrets.TF_VAR_SSH_ALLOWED_CIDR }}
       TF_VAR_alarm_email: ${{ secrets.TF_VAR_ALARM_EMAIL }}
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +81,6 @@ jobs:
     environment: prod
     env:
       TF_VAR_public_key: ${{ secrets.TF_VAR_PUBLIC_KEY }}
-      TF_VAR_ssh_allowed_cidr: ${{ secrets.TF_VAR_SSH_ALLOWED_CIDR }}
       TF_VAR_alarm_email: ${{ secrets.TF_VAR_ALARM_EMAIL }}
     steps:
       - uses: actions/checkout@v4
